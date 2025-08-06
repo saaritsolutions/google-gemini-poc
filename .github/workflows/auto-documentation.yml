@@ -1,0 +1,84 @@
+name: Auto Documentation with Gemini AI
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+    branches: [main, develop]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  generate-documentation:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '9.0.x'
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    - name: Build project
+      run: dotnet build --no-restore
+
+    - name: Get changed files
+      id: changed-files
+      uses: tj-actions/changed-files@v44
+      with:
+        files: |
+          **/*.cs
+          **/*.js
+          **/*.ts
+          **/*.py
+          **/*.java
+          **/*.cpp
+          **/*.h
+        files_ignore: |
+          **/*.min.js
+          **/bin/**
+          **/obj/**
+          **/node_modules/**
+
+    - name: Generate documentation
+      if: steps.changed-files.outputs.any_changed == 'true'
+      env:
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        REPO_NAME: ${{ github.repository }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        echo "Changed files: ${{ steps.changed-files.outputs.all_changed_files }}"
+        dotnet run --project . -- \
+          --mode documentation \
+          --changed-files "${{ steps.changed-files.outputs.all_changed_files }}" \
+          --pr-number "$PR_NUMBER" \
+          --repo "$REPO_NAME" \
+          --base-sha "$BASE_SHA" \
+          --head-sha "$HEAD_SHA"
+
+    - name: Commit documentation updates
+      if: steps.changed-files.outputs.any_changed == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add -A
+        if git diff --staged --quiet; then
+          echo "No documentation changes to commit"
+        else
+          git commit -m "📚 Auto-generate documentation for PR #${{ github.event.pull_request.number }}"
+          git push
+        fi

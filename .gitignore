@@ -1,0 +1,32 @@
+# Build outputs
+bin/
+obj/
+
+# IDE files
+.vscode/
+.vs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# User secrets and sensitive files
+appsettings.Development.json
+appsettings.Local.json
+*.user
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# NuGet packages
+*.nupkg
+*.snupkg
+packages/
+
+# Visual Studio Code
+.vscode/
