@@ -1,11 +1,13 @@
+```markdown
 # Google Gemini Agent POC
 
-A .NET Core console application demonstrating Google Gemini API integration for creating an AI agent with conversation handling capabilities.
+A .NET Core console application demonstrating Google Gemini API integration for creating an AI agent with conversation handling capabilities. It now includes advanced features for AI-powered code documentation.
 
 ## Features
 
 - 🤖 Google Gemini API integration
 - 💬 Interactive chat interface
+- ✨ **AI-powered Code Documentation Generation:** Leverages Google Gemini to automatically generate high-quality, context-aware code documentation.
 - 📝 Conversation history management
 - ⚙️ Configurable AI parameters
 - 🔒 Safety settings and content filtering
@@ -82,7 +84,7 @@ Type 'quit' to exit, 'clear' to clear history, 'history' to show conversation hi
 
 ### Available Commands
 
-- **Type any message**: Chat with the AI agent
+- **Type any message**: Chat with the AI agent. The agent can now interpret complex requests, including those for code documentation.
 - **`quit`**: Exit the application
 - **`clear`**: Clear conversation history
 - **`history`**: Show recent conversation history
@@ -108,6 +110,7 @@ Type 'quit' to exit, 'clear' to clear history, 'history' to show conversation hi
 │   └── GeminiModels.cs          # API request/response models
 ├── Services/
 │   ├── ConversationManager.cs    # Chat session management
+│   ├── DocumentationService.cs   # AI-driven code documentation logic
 │   ├── GeminiService.cs          # Gemini API integration
 │   └── Interfaces.cs             # Service interfaces
 ├── Program.cs                    # Main application entry point
@@ -118,10 +121,15 @@ Type 'quit' to exit, 'clear' to clear history, 'history' to show conversation hi
 ## Key Components
 
 ### GeminiService
-- Handles Google Gemini API communication
+- Handles Google Gemini API communication, now with **optimized interaction patterns** and **enhanced response handling** to support advanced AI capabilities like documentation generation.
 - Manages request/response serialization
 - Implements retry logic and error handling
 - Supports conversation context
+
+### DocumentationService
+- Leverages `GeminiService` for **AI-driven code documentation generation**.
+- Implements **sophisticated prompt engineering** to provide the AI with rich contextual information about code snippets.
+- **Processes and refines AI outputs** into high-quality, structured documentation.
 
 ### ConversationManager
 - Manages chat sessions and message history
@@ -147,12 +155,14 @@ The application includes default safety settings to filter potentially harmful c
 
 ### Adding New Features
 
-1. **Custom Function Calling**: Extend the `GeminiService` to support function calling
-2. **Persistent Storage**: Replace `ConversationManager` with database storage
-3. **Web Interface**: Add ASP.NET Core controllers for web-based chat
-4. **Authentication**: Add user authentication and authorization
+1.  **Custom Function Calling**: Extend the `GeminiService` to support function calling for more complex AI interactions.
+2.  **Persistent Storage**: Replace `ConversationManager` with database storage for conversation history.
+3.  **Web Interface**: Add ASP.NET Core controllers for web-based chat.
+4.  **Authentication**: Add user authentication and authorization.
 
 ### Testing
+
+Thorough unit and integration tests are crucial, especially for the `DocumentationService` and the enhanced `GeminiService`, focusing on prompt generation, API interaction, and output quality.
 
 ```bash
 # Run tests (when added)
@@ -166,9 +176,9 @@ dotnet test --collect:"XPlat Code Coverage"
 
 ### Common Issues
 
-1. **API Key Error**: Ensure your API key is correctly configured and has Gemini API access
-2. **Network Issues**: Check internet connectivity and firewall settings
-3. **Rate Limiting**: Implement retry logic if hitting API rate limits
+1.  **API Key Error**: Ensure your API key is correctly configured and has Gemini API access
+2.  **Network Issues**: Check internet connectivity and firewall settings
+3.  **Rate Limiting**: Implement retry logic if hitting API rate limits
 
 ### Logging
 
@@ -180,12 +190,13 @@ The application uses structured logging. Check console output for detailed infor
 ## Next Steps
 
 - [ ] Add persistent conversation storage
-- [ ] Implement function calling capabilities
+- [ ] Implement advanced function calling capabilities
 - [ ] Add web API endpoints
-- [ ] Create unit and integration tests
+- [ ] Create comprehensive unit and integration tests (for existing and new features)
 - [ ] Add support for image inputs
 - [ ] Implement streaming responses
 
 ## License
 
 This project is a proof of concept for educational purposes.
+```
