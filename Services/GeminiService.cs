@@ -7,10 +7,10 @@ using System.Text.Json;
 
 namespace GoogleGeminiAgent.Services;
 
-/// <summary>
-/// Service for interacting with Google Gemini API
-/// </summary>
-public class GeminiService : IGeminiService
+    /// <summary>
+    /// Service for interacting with Google Gemini API with enhanced documentation generation capabilities
+    /// </summary>
+    public class GeminiService : IGeminiService
 {
     private readonly HttpClient _httpClient;
     private readonly GeminiConfiguration _config;
