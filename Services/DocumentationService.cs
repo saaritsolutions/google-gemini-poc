@@ -65,11 +65,27 @@ public class DocumentationService : IDocumentationService
 
     private async Task<AgentResponse> GenerateFileDocumentationAsync(ChangedFile file)
     {
+        var changeTypeDescription = file.ChangeType switch
+        {
+            ChangeType.Added => "This is a newly added file",
+            ChangeType.Modified => "This is an existing file that has been modified/refactored",
+            ChangeType.Deleted => "This file has been deleted",
+            ChangeType.Renamed => "This file has been renamed/moved",
+            ChangeType.Copied => "This file has been copied from another location",
+            _ => "This file has been changed"
+        };
+
         var prompt = $"""
         As a senior software engineer and technical writer, analyze this code file and generate comprehensive documentation.
 
-        **File:** {file.Path}
-        **Change Type:** {file.ChangeType}
+        **IMPORTANT CONTEXT:**
+        - **File:** {file.Path}
+        - **Change Type:** {file.ChangeType} - {changeTypeDescription}
+        - **Lines Added:** +{file.LinesAdded}
+        - **Lines Removed:** -{file.LinesRemoved}
+
+        {(file.ChangeType == ChangeType.Modified && file.LinesAdded > 20 ? 
+            "**Note:** This appears to be a significant refactoring or enhancement of an existing file, not a new file creation." : "")}
 
         **Current Code:**
         ```{GetFileExtension(file.Path)}
@@ -77,7 +93,7 @@ public class DocumentationService : IDocumentationService
         ```
 
         {(string.IsNullOrEmpty(file.Diff) ? "" : $@"
-        **Changes Made:**
+        **Specific Changes Made:**
         ```diff
         {file.Diff}
         ```")}
@@ -103,8 +119,23 @@ public class DocumentationService : IDocumentationService
         var filesSummary = string.Join("\n", fileDocs.Select(f => 
             $"- **{f.FilePath}**: {f.Summary}"));
 
+        var changesSummary = string.Join("\n", request.ChangedFiles.Select(f => 
+        {
+            var changeDesc = f.ChangeType switch
+            {
+                ChangeType.Added => "newly added",
+                ChangeType.Modified => $"modified (+{f.LinesAdded}/-{f.LinesRemoved} lines)",
+                ChangeType.Deleted => "deleted",
+                ChangeType.Renamed => "renamed/moved",
+                _ => "changed"
+            };
+            return $"- {f.Path} ({changeDesc})";
+        }));
+
         var prompt = $"""
         As a technical lead, create a comprehensive pull request documentation summary.
+
+        **IMPORTANT:** Analyze the change types carefully to determine if this is introducing new files or modifying existing ones.
 
         **Pull Request Context:**
         - Repository: {request.RepositoryName}
@@ -114,8 +145,13 @@ public class DocumentationService : IDocumentationService
         **Files Modified:**
         {filesSummary}
 
-        **Overall Changes:**
-        {string.Join("\n", request.ChangedFiles.Select(f => $"- {f.Path} ({f.ChangeType})"))}
+        **Detailed Changes:**
+        {changesSummary}
+
+        **Analysis Guidelines:**
+        - If a file shows "modified" with significant line changes, this is likely a refactoring or enhancement of existing code
+        - If a file shows "newly added", this is a completely new file
+        - Pay attention to the +/- line counts to understand the scope of changes
 
         Please provide:
 

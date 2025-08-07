@@ -13,6 +13,8 @@ A .NET Core console application demonstrating Google Gemini API integration for 
 - 🔒 Safety settings and content filtering
 - 🧠 Context-aware responses
 - 📊 Structured logging
+- 🚀 Automated documentation generation for pull requests
+- 🔄 GitHub Actions workflow integration
 
 ## Prerequisites
 
