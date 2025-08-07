@@ -1,334 +1,319 @@
 # Documentation: GeminiService.cs
 
 **File Path:** `Services/GeminiService.cs`
-**Generated:** 2025-08-06 04:38:52 UTC
+**Generated:** 2025-08-07 02:54:45 UTC
 
 ---
 
-As a senior software engineer and technical writer, I've analyzed the `Services/GeminiService.cs` file. Below is comprehensive documentation designed to quickly onboard a new developer to this codebase.
+This document provides a comprehensive analysis of the `Services/GeminiService.cs` file, detailing its purpose, architecture, key components, dependencies, usage, recent changes, and technical considerations.
 
 ---
 
-## File: `Services/GeminiService.cs`
+## 1. File Overview
 
-### 1. File Overview
+The `GeminiService.cs` file defines the `GeminiService` class, a core component responsible for facilitating interactions with the Google Gemini API. Its primary purpose is to:
 
-This file defines the `GeminiService` class, which serves as the primary interface for interacting with the Google Gemini API within the `GoogleGeminiAgent` application. Its core purpose is to facilitate sending user prompts and conversation history to the Gemini API, processing the AI's responses, and managing the necessary API configurations and error handling. It acts as the bridge between the application's logic and Google's generative AI capabilities.
+*   **Generate AI Content**: Send prompts to the Gemini model and receive generated text responses.
+*   **Manage Conversation Context**: Incorporate previous messages into new prompts to maintain conversational flow.
+*   **Check API Availability**: Provide a mechanism to verify the reachability and responsiveness of the Gemini API.
+*   **Abstract API Complexity**: Encapsulate the details of HTTP requests, JSON serialization/deserialization, and API key management, providing a clean interface (`IGeminiService`) to other parts of the application.
+*   **Handle Errors**: Implement robust error handling for API communication failures and internal processing issues.
 
-### 2. Key Components
+This service acts as a dedicated wrapper for the Gemini API, ensuring that the application's business logic remains decoupled from the specifics of the external API integration.
 
-#### Class: `GeminiService`
+---
 
-*   **Implements**: `IGeminiService`
-*   **Description**: A service responsible for all communications with the Google Gemini API. It encapsulates the logic for constructing API requests, sending them, and parsing the responses, while also integrating with logging, configuration, and conversation management.
+## 2. Key Components
 
-#### Constructor
+### `GeminiService` Class
+
+The `GeminiService` class implements the `IGeminiService` interface and serves as the central hub for all Gemini API interactions.
+
+*   **Fields**:
+    *   `private const string MediaTypeApplicationJson`: Constant for "application/json" media type.
+    *   `private const string UserAgentHeaderValue`: Constant for the "User-Agent" HTTP header.
+    *   `private const int MaxConversationHistoryMessages`: Constant defining the maximum number of previous messages to include in context.
+    *   `private const string ApiKeyMaskPlaceholder`: Constant for masking API keys in logs.
+    *   `private readonly HttpClient _httpClient`: An instance of `HttpClient` used for making HTTP requests.
+    *   `private readonly GeminiConfiguration _config`: Configuration settings for the Gemini API (e.g., API key, base URL, model name).
+    *   `private readonly ILogger<GeminiService> _logger`: Logger instance for recording operational information, warnings, and errors.
+    *   `private readonly IConversationManager _conversationManager`: Manages the storage and retrieval of conversation history.
+    *   `private static readonly JsonSerializerOptions JsonSerializerOptions`: A static, pre-configured instance of `JsonSerializerOptions` for consistent JSON serialization across the service.
+
+*   **Constructor**:
+    ```csharp
+    public GeminiService(
+        HttpClient httpClient,
+        IOptions<GeminiConfiguration> config,
+        ILogger<GeminiService> logger,
+        IConversationManager conversationManager)
+    ```
+    Initializes the service with injected dependencies: `HttpClient` for network operations, `IOptions<GeminiConfiguration>` to access configuration, `ILogger` for logging, and `IConversationManager` for conversation state management. It also calls `ConfigureHttpClient()` to set up basic HTTP client properties.
+
+*   **`ConfigureHttpClient()` (private method)**:
+    ```csharp
+    private void ConfigureHttpClient()
+    ```
+    Sets the `BaseAddress` of the injected `_httpClient` using the configured `BaseUrl` and adds a "User-Agent" header.
+
+*   **`GenerateContentAsync(string prompt, string? conversationId = null)` (public method)**:
+    ```csharp
+    public async Task<AgentResponse> GenerateContentAsync(string prompt, string? conversationId = null)
+    ```
+    The primary entry point for generating new content. It fetches conversation history from `_conversationManager` if a `conversationId` is provided, then delegates to `GenerateContentWithContextAsync`. Includes a top-level `try-catch` block for general error handling.
+
+*   **`GenerateContentWithContextAsync(string prompt, List<ConversationMessage> history)` (public method)**:
+    ```csharp
+    public async Task<AgentResponse> GenerateContentWithContextAsync(string prompt, List<ConversationMessage> history)
+    ```
+    Performs the actual API call to Google Gemini. It constructs the API request payload (including history), serializes it to JSON, sends a POST request to the Gemini API, and deserializes the response. Handles both successful and unsuccessful API responses (e.g., HTTP error codes) and converts them into an `AgentResponse`. **Note**: This method explicitly creates a *new* `HttpClient` instance for each call.
+
+*   **`IsServiceAvailableAsync()` (public method)**:
+    ```csharp
+    public async Task<bool> IsServiceAvailableAsync()
+    ```
+    Checks the availability of the Gemini API. It attempts to send a simple "Hello" prompt to the configured model. If that fails, it tries fallback models ("gemini-pro", "gemini-1.5-flash", "gemini-1.5-pro") to increase resilience. Logs detailed information about each attempt and associated errors. This method also creates `new HttpClient()` instances for initial attempts before potentially falling back to the injected `_httpClient`.
+
+*   **`BuildRequest(string prompt, List<ConversationMessage> history)` (private method)**:
+    ```csharp
+    private GenerateContentRequest BuildRequest(string prompt, List<ConversationMessage> history)
+    ```
+    Constructs the `GenerateContentRequest` object, which is the payload sent to the Gemini API. It iterates through the provided `history` (limiting to the last `MaxConversationHistoryMessages`) and appends the current `prompt` as a new user message.
+
+*   **`GetDefaultSafetySettings()` (private method)**:
+    ```csharp
+    private List<SafetySetting> GetDefaultSafetySettings()
+    ```
+    This method defines a list of default `SafetySetting` objects for content moderation. **Note**: As per the code comments in `BuildRequest`, these settings are currently *not* included in the API request, indicating they are either commented out for testing/debugging or intended for future use.
+
+*   **`ProcessResponse(GenerateContentResponse? response)` (private method)**:
+    ```csharp
+    private AgentResponse ProcessResponse(GenerateContentResponse? response)
+    ```
+    Parses the `GenerateContentResponse` received from the Gemini API into the application's standardized `AgentResponse` format. It extracts the generated text content and includes metadata like `finishReason` and `candidateIndex`. It also handles cases where no candidates are returned by the API.
+
+*   **`BuildApiUrl(string model)` (private method)**:
+    ```csharp
+    private string BuildApiUrl(string model)
+    ```
+    A helper method to construct the full Gemini API endpoint URL, including the base URL, model name, and API key.
+
+*   **`MaskApiKey(string url)` (private method)**:
+    ```csharp
+    private string MaskApiKey(string url)
+    ```
+    A helper method used for logging purposes. It replaces the actual API key in a URL string with a placeholder (`***`) to prevent sensitive information from being exposed in logs.
+
+*   **`CreateErrorResponse(string errorMessage, string? conversationId = null)` (private static method)**:
+    ```csharp
+    private static AgentResponse CreateErrorResponse(string errorMessage, string? conversationId = null)
+    ```
+    A static helper method to consistently create `AgentResponse` objects indicating an error. It sets `IsSuccessful` to `false` and populates the `ErrorMessage` field.
+
+---
+
+## 3. Dependencies
+
+The `GeminiService` class relies on several internal and external components:
+
+*   **Internal Project Dependencies (Models & Interfaces)**:
+    *   `GoogleGeminiAgent.Configuration.GeminiConfiguration`: Provides access to configurable settings for the Gemini API.
+    *   `GoogleGeminiAgent.Models.AgentResponse`: The standardized response object used across the application.
+    *   `GoogleGeminiAgent.Models.ConversationMessage`: Represents a single message within a conversation.
+    *   `GoogleGeminiAgent.Models.GenerateContentRequest`, `GoogleGeminiAgent.Models.GenerateContentResponse`: Data transfer objects (DTOs) mapping directly to the Gemini API's request and response structures.
+    *   `GoogleGeminiAgent.Models.Content`, `GoogleGeminiAgent.Models.Part`, `GoogleGeminiAgent.Models.SafetySetting`: Nested DTOs used within the Gemini API request/response.
+    *   `GoogleGeminiAgent.Services.IGeminiService`: The interface that `GeminiService` implements.
+    *   `GoogleGeminiAgent.Services.IConversationManager`: An interface for managing conversation history (retrieval and potentially storage).
+
+*   **External .NET / NuGet Dependencies**:
+    *   `System.Net.Http`: For HTTP communication (`HttpClient`, `HttpRequestMessage`, `HttpResponseMessage`, `StringContent`).
+    *   `Microsoft.Extensions.Logging`: For structured logging (`ILogger`).
+    *   `Microsoft.Extensions.Options`: For accessing configuration through the `IOptions` pattern.
+    *   `System.Text`: For string manipulation (`Encoding`, `StringBuilder`).
+    *   `System.Text.Json`: For JSON serialization and deserialization (`JsonSerializer`, `JsonNamingPolicy`, `JsonSerializerOptions`, `JsonIgnoreCondition`).
+    *   `System.Collections.Generic`: For data structures like `List` and `Dictionary`.
+    *   `System.Linq`: For LINQ extensions (`TakeLast`, `Any`, `FirstOrDefault`, `Distinct`).
+
+---
+
+## 4. Architecture Notes
+
+*   **Dependency Injection (DI)**: The service heavily utilizes constructor injection (`HttpClient`, `IOptions`, `ILogger`, `IConversationManager`), which is a fundamental pattern for building testable, modular, and maintainable applications. It promotes loose coupling between components.
+*   **Configuration Management**: The use of `IOptions<GeminiConfiguration>` allows for externalizing API settings (like base URL and API key) from the code, making the service configurable without recompilation.
+*   **Layered Architecture**: `GeminiService` acts as an integration layer, abstracting the complexities of external API calls. This separation of concerns means other parts of the application don't need to know the specifics of how to talk to Gemini.
+*   **Robust Error Handling**: Extensive `try-catch` blocks are used to gracefully handle exceptions during API calls and data processing. Errors are logged using `ILogger` and translated into consistent `AgentResponse` objects with `IsSuccessful = false`, simplifying error propagation to callers.
+*   **Conversation State Management Delegation**: The service delegates the responsibility of managing conversation history to `IConversationManager`, keeping its own focus strictly on interacting with the Gemini API. This prevents the `GeminiService` from becoming overly complex by mixing API interaction logic with state management logic.
+*   **Readability and Maintainability**: The introduction of constants for magic strings and helper methods for common operations (like URL building, API key masking, and error response creation) significantly improves code readability and maintainability.
+*   **JSON Serialization**: The use of `System.Text.Json` with `JsonNamingPolicy.CamelCase` ensures that C# PascalCase properties are correctly mapped to JSON camelCase, adhering to common API conventions. The `DefaultIgnoreCondition.WhenWritingNull` ensures that null properties are not included in the serialized JSON, which can reduce payload size and prevent issues with APIs that do not expect null values.
+
+---
+
+## 5. Usage Examples
+
+### 5.1. Service Registration (e.g., in `Program.cs` or `Startup.cs`)
+
+To make `GeminiService` available via Dependency Injection, it must be registered with the service collection.
 
 ```csharp
-public GeminiService(
-    HttpClient httpClient,
-    IOptions<GeminiConfiguration> config,
-    ILogger<GeminiService> logger,
-    IConversationManager conversationManager)
+// In Program.cs (for .NET 6+) or Startup.cs (for older ASP.NET Core versions)
+
+public void ConfigureServices(IServiceCollection services)
+{
+    // 1. Register HttpClient and GeminiService
+    // HttpClientFactory manages HttpClient instances for better performance and resource management.
+    services.AddHttpClient<IGeminiService, GeminiService>();
+
+    // 2. Configure Gemini API settings from appsettings.json
+    // Assumes appsettings.json has a "Gemini" section with BaseUrl, ApiKey, Model.
+    services.Configure<GeminiConfiguration>(Configuration.GetSection("Gemini"));
+
+    // 3. Register the Conversation Manager (example, actual implementation varies)
+    services.AddSingleton<IConversationManager, InMemoryConversationManager>(); // Or a database-backed one
+
+    // Other service registrations...
+    services.AddControllers();
+}
 ```
 
-*   **Parameters**:
-    *   `httpClient` (HttpClient): An instance of `HttpClient` for making HTTP requests. This is injected, typically configured for the application's needs.
-    *   `config` (IOptions<GeminiConfiguration>): Provides access to application-specific Gemini API configuration settings (e.g., Base URL, API Key, Model).
-    *   `logger` (ILogger<GeminiService>): An instance for logging information, warnings, and errors specific to the Gemini service.
-    *   `conversationManager` (IConversationManager): An injected service responsible for retrieving and potentially managing conversation history.
-*   **Responsibilities**:
-    *   Initializes private fields with injected dependencies.
-    *   Extracts `GeminiConfiguration` from `IOptions`.
-    *   Calls `ConfigureHttpClient()` to set up the injected `HttpClient`.
+### 5.2. Consuming the Service (e.g., in an ASP.NET Core Controller)
 
-#### Private Method: `ConfigureHttpClient()`
+A controller or another service can then inject `IGeminiService` and use its methods.
 
 ```csharp
-private void ConfigureHttpClient()
-```
-
-*   **Description**: Sets the base address and default request headers (e.g., User-Agent) for the injected `_httpClient`. This ensures all requests made via this client have consistent base settings.
-*   **Note**: This method is called during the service's construction.
-
-#### Public Method: `GenerateContentAsync(string prompt, string? conversationId = null)`
-
-```csharp
-public async Task<AgentResponse> GenerateContentAsync(string prompt, string? conversationId = null)
-```
-
-*   **Parameters**:
-    *   `prompt` (string): The user's current input text to send to the Gemini API.
-    *   `conversationId` (string?, optional): An identifier for the ongoing conversation. If provided, the service attempts to retrieve previous messages associated with this ID.
-*   **Returns**: `Task<AgentResponse>`: An `AgentResponse` object indicating success or failure, and containing the generated content if successful.
-*   **Responsibilities**:
-    *   Logs the incoming prompt for debugging/auditing.
-    *   Retrieves conversation history using `_conversationManager` if a `conversationId` is provided.
-    *   Delegates the actual API call to `GenerateContentWithContextAsync`, passing the prompt and retrieved history.
-    *   Includes robust `try-catch` error handling, logging exceptions, and returning a failed `AgentResponse`.
-
-#### Public Method: `GenerateContentWithContextAsync(string prompt, List<ConversationMessage> history)`
-
-```csharp
-public async Task<AgentResponse> GenerateContentWithContextAsync(string prompt, List<ConversationMessage> history)
-```
-
-*   **Parameters**:
-    *   `prompt` (string): The current user prompt.
-    *   `history` (List<ConversationMessage>): A list of previous messages in the conversation to provide context to the AI.
-*   **Returns**: `Task<AgentResponse>`: An `AgentResponse` object containing the Gemini API's response or error details.
-*   **Responsibilities**:
-    *   Constructs the Gemini API request payload using the `BuildRequest` method.
-    *   Constructs the full API endpoint URL, including the model and API key.
-    *   Serializes the request payload to JSON.
-    *   **Crucially, creates a *new* `HttpClient` instance for the API call.** (See Technical Considerations)
-    *   Sends a POST request to the Gemini API.
-    *   Checks the HTTP response status code:
-        *   If unsuccessful, reads and logs the error content from the API, then returns a failed `AgentResponse`.
-        *   If successful, deserializes the JSON response into a `GenerateContentResponse` object.
-    *   Processes the deserialized response using `ProcessResponse`.
-    *   Includes `try-catch` for network or serialization errors.
-
-#### Public Method: `IsServiceAvailableAsync()`
-
-```csharp
-public async Task<bool> IsServiceAvailableAsync()
-```
-
-*   **Returns**: `Task<bool>`: `true` if the Gemini API is reachable and responds successfully to a test prompt with any of the configured/fallback models; `false` otherwise.
-*   **Responsibilities**:
-    *   Attempts to connect to the Gemini API using a predefined list of models, starting with the configured model and falling back to common Gemini models (`gemini-pro`, `gemini-1.5-flash`, `gemini-1.5-pro`).
-    *   Constructs a minimal test `GenerateContentRequest` ("Hello").
-    *   Builds the full API URL for each model.
-    *   Serializes the test request to JSON.
-    *   **Attempts to use a *new* `HttpClient` with the full URL, falling back to the injected `_httpClient` with a relative URL if the first attempt fails.** (See Technical Considerations)
-    *   Logs detailed information about the availability check, including API key (partially masked), base URL, and request JSON.
-    *   Provides informative logging for success, warnings for non-success responses, and errors for exceptions during the check.
-    *   Returns `true` on the first successful connection and response, `false` if all attempts fail.
-
-#### Private Method: `BuildRequest(string prompt, List<ConversationMessage> history)`
-
-```csharp
-private GenerateContentRequest BuildRequest(string prompt, List<ConversationMessage> history)
-```
-
-*   **Parameters**:
-    *   `prompt` (string): The current user prompt.
-    *   `history` (List<ConversationMessage>): The conversation history.
-*   **Returns**: `GenerateContentRequest`: A structured object representing the payload to be sent to the Gemini API.
-*   **Responsibilities**:
-    *   Constructs the `Contents` array for the API request.
-    *   Adds up to the last 10 messages from the `history` to the `Contents` list, mapping `ConversationMessage` roles to Gemini API roles (`user` or `model`).
-    *   Appends the current `prompt` as a `user` role message.
-    *   **Note**: The code explicitly comments out `GenerationConfig` and `SafetySettings` to match a "working Postman format," indicating a deliberate choice to simplify the request body.
-
-#### Private Method: `GetDefaultSafetySettings()`
-
-```csharp
-private List<SafetySetting> GetDefaultSafetySettings()
-```
-
-*   **Returns**: `List<SafetySetting>`: A predefined list of `SafetySetting` objects configured to block medium and above harmful content categories.
-*   **Responsibility**: Provides a default set of safety settings for API requests.
-*   **Note**: As per the `BuildRequest` method's comments, this method is currently *not used* in the active API request construction.
-
-#### Private Method: `ProcessResponse(GenerateContentResponse? response)`
-
-```csharp
-private AgentResponse ProcessResponse(GenerateContentResponse? response)
-```
-
-*   **Parameters**:
-    *   `response` (GenerateContentResponse?): The deserialized response object received from the Gemini API.
-*   **Returns**: `AgentResponse`: A simplified, application-specific response model.
-*   **Responsibilities**:
-    *   Checks if the Gemini API response contains valid candidates. If not, returns an unsuccessful `AgentResponse`.
-    *   Extracts the text content from the first candidate's first part.
-    *   Constructs an `AgentResponse` object, populating its `Content`, `IsSuccessful`, `Timestamp`, `MessageId`, and `Metadata` fields based on the Gemini response.
-
-### 3. Dependencies
-
-#### Internal Project Dependencies:
-
-*   **`GoogleGeminiAgent.Configuration.GeminiConfiguration`**: Configuration class holding API base URL, key, and default model.
-*   **`GoogleGeminiAgent.Models.*`**:
-    *   `AgentResponse`: Standardized application response model.
-    *   `ConversationMessage`: Represents a single message in a conversation.
-    *   `GenerateContentRequest`, `GenerateContentResponse`, `Content`, `Part`, `SafetySetting`: Models representing the structure of requests and responses to/from the Google Gemini API.
-*   **`GoogleGeminiAgent.Services.IGeminiService`**: The interface this class implements, defining its public contract.
-*   **`GoogleGeminiAgent.Services.IConversationManager`**: Interface for managing conversation history persistence.
-
-#### External Libraries/Frameworks:
-
-*   **`System.Net.Http`**: Provides `HttpClient` for making HTTP requests.
-*   **`Microsoft.Extensions.Logging`**: Provides `ILogger` for structured logging.
-*   **`Microsoft.Extensions.Options`**: Provides `IOptions` for accessing configuration values via dependency injection.
-*   **`System.Text.Json`**: Microsoft's built-in high-performance JSON serializer/deserializer. Used for converting C# objects to JSON payloads and vice-versa.
-    *   `System.Text.Json.JsonSerializer`
-    *   `System.Text.Json.JsonNamingPolicy`
-    *   `System.Text.Json.Serialization.JsonIgnoreCondition`
-*   **`System.Text`**: Provides `Encoding` for `StringContent`.
-
-### 4. Architecture Notes
-
-*   **Dependency Injection (DI)**: The `GeminiService` class heavily relies on DI for its dependencies (`HttpClient`, `IOptions<GeminiConfiguration>`, `ILogger`, `IConversationManager`). This promotes loose coupling, testability, and adherence to the Inversion of Control principle.
-*   **Configuration as Code**: Gemini API settings are externalized into `GeminiConfiguration` and injected via `IOptions`, making the service easily configurable without code changes.
-*   **Layered Architecture**: The `GeminiService` acts as a service layer component, abstracting the complexities of direct API interaction from higher-level application logic.
-*   **Robust Error Handling**: Each public method includes `try-catch` blocks to gracefully handle exceptions during API calls or data processing, ensuring that errors are logged and appropriate `AgentResponse` objects are returned.
-*   **API Model Encapsulation**: The service uses internal models (e.g., `AgentResponse`, `ConversationMessage`) which simplify the data structures consumed and produced by the service, shielding external callers from the specifics of the raw Gemini API models.
-*   **Conversation Context Management**: The service integrates with an `IConversationManager` to incorporate historical context into API calls, enabling multi-turn conversations. The hardcoded limit of 10 messages provides a basic form of context window management.
-*   **API Availability Check**: The `IsServiceAvailableAsync` method provides a valuable health-check mechanism for the Gemini API, attempting multiple models for resilience.
-
-### 5. Usage Examples
-
-#### 5.1. Service Registration (e.g., in `Program.cs` or `Startup.cs`)
-
-```csharp
-// Program.cs (Minimal API example)
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using GoogleGeminiAgent.Configuration;
-using GoogleGeminiAgent.Services; // Assuming these are defined in your project
-
-var builder = WebApplication.CreateBuilder(args);
-
-// 1. Configure Gemini settings
-builder.Services.Configure<GeminiConfiguration>(
-    builder.Configuration.GetSection("Gemini"));
-
-// 2. Register HttpClient (usually as a singleton, or via IHttpClientFactory)
-// Best practice: Use IHttpClientFactory for managing HttpClients
-builder.Services.AddHttpClient<IGeminiService, GeminiService>(); // Registers HttpClient and GeminiService
-
-// 3. Register ILogger (automatically handled by Host builder)
-// 4. Register IConversationManager (example - replace with your actual implementation)
-builder.Services.AddSingleton<IConversationManager, InMemoryConversationManager>(); // Or a database-backed manager
-
-// 5. Register GeminiService itself (already done via AddHttpClient above if GeminiService takes HttpClient)
-// If it took a raw HttpClient, you might do: builder.Services.AddScoped<IGeminiService, GeminiService>();
-
-var app = builder.Build();
-
-// ... other app configuration ...
-```
-
-#### 5.2. Consuming `GeminiService` (e.g., in a Controller or another Service)
-
-```csharp
-using Microsoft.AspNetCore.Mvc;
-using GoogleGeminiAgent.Services;
 using GoogleGeminiAgent.Models;
+using GoogleGeminiAgent.Services;
+using Microsoft.AspNetCore.Mvc;
 
-namespace GoogleGeminiAgent.Controllers;
+namespace GoogleGeminiAgent.Web.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 public class AgentController : ControllerBase
 {
     private readonly IGeminiService _geminiService;
-    private readonly ILogger<AgentController> _logger;
 
-    public AgentController(IGeminiService geminiService, ILogger<AgentController> logger)
+    public AgentController(IGeminiService geminiService)
     {
         _geminiService = geminiService;
-        _logger = logger;
     }
 
     /// <summary>
-    /// Handles a new prompt for the Gemini agent.
+    /// Generates content from the Gemini AI, optionally maintaining conversation context.
     /// </summary>
-    /// <param name="request">The prompt request, including text and optional conversation ID.</param>
-    /// <returns>The agent's response.</returns>
-    [HttpPost("prompt")]
-    public async Task<IActionResult> SendPrompt([FromBody] AgentPromptRequest request)
+    [HttpPost("generate")]
+    public async Task<IActionResult> GenerateContent([FromBody] AgentRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Prompt))
         {
             return BadRequest("Prompt cannot be empty.");
         }
 
-        _logger.LogInformation("Received prompt for conversation {Id}: {Prompt}", request.ConversationId, request.Prompt);
-
+        // Example: Call the service to generate content
         AgentResponse response = await _geminiService.GenerateContentAsync(request.Prompt, request.ConversationId);
 
         if (response.IsSuccessful)
         {
-            // In a real app, you'd likely save the user prompt and agent response to history here
-            _logger.LogInformation("Agent response for conversation {Id}: {Content}", request.ConversationId, response.Content);
+            // Optionally, save the new message to conversation history via IConversationManager
+            // _conversationManager.AddMessage(request.ConversationId, "user", request.Prompt);
+            // _conversationManager.AddMessage(request.ConversationId, "model", response.Content);
+
             return Ok(response);
         }
         else
         {
-            _logger.LogError("Failed to get agent response for conversation {Id}: {Error}", request.ConversationId, response.ErrorMessage);
-            return StatusCode(500, response); // Or a more specific error code
+            return StatusCode(500, new { Error = response.ErrorMessage });
         }
     }
 
     /// <summary>
-    /// Checks if the Gemini service is available.
+    /// Checks if the Gemini AI service is available.
     /// </summary>
     [HttpGet("status")]
     public async Task<IActionResult> GetServiceStatus()
     {
-        _logger.LogInformation("Checking Gemini service availability.");
         bool isAvailable = await _geminiService.IsServiceAvailableAsync();
         if (isAvailable)
         {
-            return Ok("Gemini service is available.");
+            return Ok(new { Status = "Gemini AI Service is available." });
         }
         else
         {
-            return StatusCode(503, "Gemini service is currently unavailable.");
+            return StatusCode(503, new { Status = "Gemini AI Service is currently unavailable or configuration is incorrect." });
         }
     }
 }
 
-public class AgentPromptRequest
+// Example DTO for incoming request
+public class AgentRequest
 {
     public string Prompt { get; set; } = string.Empty;
     public string? ConversationId { get; set; }
 }
 ```
 
-### 6. Change Impact
+---
 
-**Changes Made:**
+## 6. Change Impact
 
-```diff
-@@ -7,10 +7,10 @@
- 
- namespace GoogleGeminiAgent.Services;
- 
--/// <summary>
--/// Service for interacting with Google Gemini API
--/// </summary>
--public class GeminiService : IGeminiService
-+    /// <summary>
-+    /// Service for interacting with Google Gemini API with enhanced documentation generation capabilities
-+    /// </summary>
-+    public class GeminiService : IGeminiService
- {
-     private readonly HttpClient _httpClient;
-     private readonly GeminiConfiguration _config;
-```
+The recent changes to `GeminiService.cs` primarily focus on improving code quality, maintainability, and consistency, while also introducing minor performance optimizations.
 
-**Impact:**
+*   **Introduction of Constants**:
+    *   **What changed**: Several magic strings (`"application/json"`, `"GoogleGeminiAgent/1.0"`, `_config.ApiKey` masking string) and numerical literals (conversation history limit `10`) were replaced with named `const` fields (`MediaTypeApplicationJson`, `UserAgentHeaderValue`, `MaxConversationHistoryMessages`, `ApiKeyMaskPlaceholder`).
+    *   **Why it matters**:
+        *   **Readability**: Code becomes easier to understand by using descriptive names instead of literal values.
+        *   **Maintainability**: If these values need to change (e.g., a new User-Agent version, a different API key mask), they can be updated in a single place.
+        *   **Consistency**: Ensures the exact same value is used throughout the service.
 
-*   **No Functional Change**: This modification is purely to the XML documentation comment of the `GeminiService` class. It does not alter the runtime behavior, logic, or performance of the application in any way.
-*   **Documentation Improvement**: The change adds "with enhanced documentation generation capabilities" to the class summary. This is a minor, stylistic enhancement to the generated documentation (e.g., from tools like Sandcastle or IntelliSense) for the `GeminiService` class. It clarifies the service's role specifically in a context where documentation is a priority. While a small change, it reflects a commitment to clearer communication within the codebase.
+*   **Static `JsonSerializerOptions` Instance**:
+    *   **What changed**: The `JsonSerializerOptions` object, previously instantiated inline for each `JsonSerializer.Serialize` call, is now a `static readonly` field initialized once.
+    *   **Why it matters**:
+        *   **Performance**: Object allocation (even small objects like `JsonSerializerOptions`) has a cost. By creating a single static instance, this overhead is eliminated for every serialization operation, leading to minor but cumulative performance gains, especially in high-throughput scenarios.
+        *   **Consistency**: Ensures all serialization operations use the exact same options configuration without needing to duplicate the settings.
 
-### 7. Technical Considerations
+*   **Refactored Error Response Creation (`CreateErrorResponse`)**:
+    *   **What changed**: Duplicate code for creating `AgentResponse` objects with `IsSuccessful = false` has been replaced by calls to a new private static helper method, `CreateErrorResponse`.
+    *   **Why it matters**:
+        *   **Code Duplication Reduction**: Eliminates repetitive code blocks, making the codebase smaller and cleaner.
+        *   **Consistency**: Guarantees that all error responses are structured identically, simplifying error handling for consumers of the service.
+        *   **Maintainability**: If the structure of an error response needs to change, it only needs to be updated in one place.
 
-*   **HttpClient Management (Critical Issue)**: The `GenerateContentWithContextAsync` and `IsServiceAvailableAsync` methods create *new* `HttpClient` instances (`using var httpClient = new HttpClient();`) for each API call. This is a well-known anti-pattern in .NET applications. `HttpClient` is designed to be a long-lived object, and creating new instances repeatedly can lead to "socket exhaustion," where the application runs out of available network sockets, causing connection failures and performance degradation over time.
-    *   **Recommendation**: Refactor these methods to consistently use the `_httpClient` instance injected into the constructor. If different base addresses are truly needed, consider using `IHttpClientFactory` to manage named clients or pass the full URI to `_httpClient` methods. The current fallback logic in `IsServiceAvailableAsync` exacerbates this by creating two new clients.
-*   **API Key Security**: While the API key is partially masked in logs (`***`), ensure that the API key is never hardcoded directly into source control. It should be managed securely through environment variables, Azure Key Vault, AWS Secrets Manager, or similar secure configuration providers.
-*   **Missing Safety Settings/Generation Config**: The `BuildRequest` method explicitly comments out the inclusion of `GenerationConfig` and `SafetySettings`. While this was done to "match working Postman format," it means the Gemini API is running with its default (potentially less strict) safety settings and without specific generation parameters (like temperature, max tokens, etc.).
-    *   **Recommendation**: Re-evaluate if `GenerationConfig` and `SafetySettings` should be included. If they are intended to be used, uncomment the relevant lines in `BuildRequest` and use the `GetDefaultSafetySettings()` method or make them configurable. If not, consider removing `GetDefaultSafetySettings()` to avoid dead code.
-*   **Hardcoded Conversation History Limit**: The `TakeLast(10)` limit for conversation history in `BuildRequest` is hardcoded.
-    *   **Recommendation**: Make this limit configurable (e.g., via `GeminiConfiguration`) to allow for easy tuning of context window size without code changes.
-*   **Rate Limiting and Retry Policies**: There are no explicit mechanisms for handling API rate limits or transient network errors (e.g., retries with exponential backoff).
-    *   **Recommendation**: For a production application, implement a retry policy (e.g., using Polly or a custom implementation) and consider rate limiting strategies if high throughput is expected.
-*   **Error Message Granularity**: The `ErrorMessage` in `AgentResponse` directly exposes `ex.Message` or raw API error content.
-    *   **Recommendation**: For user-facing errors, consider transforming these into more generic, user-friendly messages while retaining the detailed technical error in logs.
-*   **Asynchronous Best Practices**: The methods correctly use `async` and `await`, which is good practice for I/O-bound operations like network calls.
+*   **New Private Helper Methods (`BuildApiUrl`, `MaskApiKey`)**:
+    *   **What changed**: Logic for constructing the full API URL and masking the API key for logging purposes has been extracted into dedicated private methods.
+    *   **Why it matters**:
+        *   **Modularity**: Each method now has a single, clear responsibility.
+        *   **Readability**: The main `GenerateContentWithContextAsync` and `IsServiceAvailableAsync` methods are less cluttered, focusing on their primary business logic.
+        *   **Testability (indirect)**: While private, these methods encapsulate specific logic that can be indirectly verified through the public methods, or potentially made `internal` for direct unit testing if needed.
+
+*   **Overall Impact**:
+    The changes significantly improve the internal quality of the `GeminiService`. They demonstrate a commitment to best practices in C# development, such as DRY (Don't Repeat Yourself) principles, separation of concerns, and minor performance optimizations. The external behavior and API of the `GeminiService` remain unchanged, ensuring backward compatibility for consumers.
+
+---
+
+## 7. Technical Considerations
+
+*   **Performance - `HttpClient` Instantiation**:
+    *   **Concern**: The `GenerateContentWithContextAsync` method explicitly creates `using var httpClient = new HttpClient();` for *every* API call. Similarly, `IsServiceAvailableAsync` primarily uses new `HttpClient` instances before falling back to the injected one.
+    *   **Implication**: Creating a new `HttpClient` for each request is generally considered an anti-pattern. `HttpClient` is designed to be long-lived and reused across requests. Repeated creation can lead to:
+        *   **Socket Exhaustion**: Rapid creation and disposal of `HttpClient` instances can exhaust available sockets, leading to `HttpRequestException` errors "No connection could be made because the target machine actively refused it."
+        *   **Performance Overhead**: Each new instance involves setup overhead (DNS resolution, TCP connection establishment) which adds latency.
+    *   **Recommendation**: While the code comment states "Use the exact same pattern as the working Postman test," for production applications, it's strongly recommended to consistently use the single `_httpClient` instance injected via DI, which is managed by `HttpClientFactory` (when `services.AddHttpClient` is used). If there's a specific reason for this pattern (e.g., unique SSL certificate per request, highly isolated request contexts), it should be clearly documented and justified, but generally, it's a practice to avoid.
+
+*   **Security - API Key Handling**:
+    *   **Positive**: The API key is loaded from configuration (`GeminiConfiguration`), which is better than hardcoding. The `MaskApiKey` helper is a good step to prevent the full key from appearing in logs.
+    *   **Consideration**: While masking is helpful, sensitive credentials should ideally be handled by secure logging mechanisms (e.g., not logged at all unless absolutely necessary for debugging in a highly secure environment, or using dedicated secrets management for logs). Ensure your logging infrastructure is secure to prevent any leakage.
+
+*   **Maintainability**:
+    *   The recent refactoring greatly enhances maintainability by reducing duplication and centralizing common logic.
+    *   Extensive logging with informative messages (including masked API keys and partial prompts) is beneficial for debugging and monitoring.
+
+*   **Extensibility - Safety Settings**:
+    *   The `GetDefaultSafetySettings()` method is present but currently commented out in `BuildRequest`. This suggests a potential future feature to enable and apply content safety filters, which is crucial for responsible AI deployments. Enabling this would require uncommenting and integrating it into the `GenerateContentRequest`.
+
+*   **Error Reporting Granularity**:
+    *   The `AgentResponse` simplifies errors to a boolean `IsSuccessful` and an `ErrorMessage`. For more complex applications, considering more granular error codes or types (e.g., `ApiError`, `SerializationError`, `ConfigurationError`) could allow callers to handle different error conditions programmatically.
+
+*   **Retry Mechanisms**:
+    *   The service currently does not implement automatic retry logic for transient network or API errors. For production systems, especially those interacting with external APIs, implementing a retry policy (e.g., using Polly or a custom backoff strategy) can significantly improve reliability.
+
+*   **Asynchronous Operations**:
+    *   The use of `async`/`await` throughout the service correctly handles asynchronous I/O operations, ensuring the application remains responsive and scalable.
