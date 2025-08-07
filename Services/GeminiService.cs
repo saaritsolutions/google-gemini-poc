@@ -7,15 +7,26 @@ using System.Text.Json;
 
 namespace GoogleGeminiAgent.Services;
 
-    /// <summary>
-    /// Service for interacting with Google Gemini API with enhanced documentation generation capabilities
-    /// </summary>
-    public class GeminiService : IGeminiService
+/// <summary>
+/// Service for interacting with Google Gemini API with enhanced documentation generation capabilities
+/// </summary>
+public class GeminiService : IGeminiService
 {
+    private const string MediaTypeApplicationJson = "application/json";
+    private const string UserAgentHeaderValue = "GoogleGeminiAgent/1.0";
+    private const int MaxConversationHistoryMessages = 10;
+    private const string ApiKeyMaskPlaceholder = "***";
+
     private readonly HttpClient _httpClient;
     private readonly GeminiConfiguration _config;
     private readonly ILogger<GeminiService> _logger;
     private readonly IConversationManager _conversationManager;
+
+    private static readonly JsonSerializerOptions JsonSerializerOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
 
     public GeminiService(
         HttpClient httpClient,
@@ -34,7 +45,7 @@ namespace GoogleGeminiAgent.Services;
     private void ConfigureHttpClient()
     {
         _httpClient.BaseAddress = new Uri(_config.BaseUrl);
-        _httpClient.DefaultRequestHeaders.Add("User-Agent", "GoogleGeminiAgent/1.0");
+        _httpClient.DefaultRequestHeaders.Add("User-Agent", UserAgentHeaderValue);
     }
 
     public async Task<AgentResponse> GenerateContentAsync(string prompt, string? conversationId = null)
@@ -54,12 +65,7 @@ namespace GoogleGeminiAgent.Services;
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error generating content");
-            return new AgentResponse
-            {
-                IsSuccessful = false,
-                ErrorMessage = ex.Message,
-                ConversationId = conversationId ?? string.Empty
-            };
+            return CreateErrorResponse(ex.Message, conversationId);
         }
     }
 
@@ -68,20 +74,15 @@ namespace GoogleGeminiAgent.Services;
         try
         {
             var request = BuildRequest(prompt, history);
-            var fullUrl = $"{_config.BaseUrl}/models/{_config.Model}:generateContent?key={_config.ApiKey}";
+            var fullUrl = BuildApiUrl(_config.Model);
 
-            var json = JsonSerializer.Serialize(request, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            });
+            var json = JsonSerializer.Serialize(request, JsonSerializerOptions);
 
-            _logger.LogDebug("Sending request to Gemini API: {Url}", fullUrl.Replace(_config.ApiKey, "***"));
+            _logger.LogDebug("Sending request to Gemini API: {Url}", MaskApiKey(fullUrl));
 
-            // Use the exact same pattern as the working Postman test
             using var httpClient = new HttpClient();
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, fullUrl);
-            var content = new StringContent(json, null, "application/json");
+            var content = new StringContent(json, null, MediaTypeApplicationJson);
             httpRequest.Content = content;
             
             var response = await httpClient.SendAsync(httpRequest);
@@ -91,11 +92,7 @@ namespace GoogleGeminiAgent.Services;
                 var errorContent = await response.Content.ReadAsStringAsync();
                 _logger.LogError("Gemini API error: {StatusCode} - {Content}", response.StatusCode, errorContent);
                 
-                return new AgentResponse
-                {
-                    IsSuccessful = false,
-                    ErrorMessage = $"API Error: {response.StatusCode} - {errorContent}"
-                };
+                return CreateErrorResponse($"API Error: {response.StatusCode} - {errorContent}");
             }
 
             var responseJson = await response.Content.ReadAsStringAsync();
@@ -109,11 +106,7 @@ namespace GoogleGeminiAgent.Services;
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error calling Gemini API");
-            return new AgentResponse
-            {
-                IsSuccessful = false,
-                ErrorMessage = ex.Message
-            };
+            return CreateErrorResponse(ex.Message);
         }
     }
 
@@ -208,7 +201,7 @@ namespace GoogleGeminiAgent.Services;
         var contents = new List<Content>();
 
         // Add conversation history
-        foreach (var message in history.TakeLast(10)) // Limit to last 10 messages
+        foreach (var message in history.TakeLast(MaxConversationHistoryMessages))
         {
             contents.Add(new Content
             {
@@ -246,11 +239,7 @@ namespace GoogleGeminiAgent.Services;
     {
         if (response?.Candidates == null || !response.Candidates.Any())
         {
-            return new AgentResponse
-            {
-                IsSuccessful = false,
-                ErrorMessage = "No response generated"
-            };
+            return CreateErrorResponse("No response generated");
         }
 
         var candidate = response.Candidates.First();
@@ -267,6 +256,42 @@ namespace GoogleGeminiAgent.Services;
                 ["finishReason"] = candidate.FinishReason ?? "unknown",
                 ["candidateIndex"] = candidate.Index
             }
+        };
+    }
+
+    /// <summary>
+    /// Builds the full API URL for the specified model
+    /// </summary>
+    /// <param name="model">The model name to use</param>
+    /// <returns>Complete API URL with authentication</returns>
+    private string BuildApiUrl(string model)
+    {
+        return $"{_config.BaseUrl}/models/{model}:generateContent?key={_config.ApiKey}";
+    }
+
+    /// <summary>
+    /// Masks the API key in URLs for logging purposes
+    /// </summary>
+    /// <param name="url">URL containing API key</param>
+    /// <returns>URL with masked API key</returns>
+    private string MaskApiKey(string url)
+    {
+        return url.Replace(_config.ApiKey, ApiKeyMaskPlaceholder);
+    }
+
+    /// <summary>
+    /// Creates a standardized error response
+    /// </summary>
+    /// <param name="errorMessage">Error message</param>
+    /// <param name="conversationId">Optional conversation ID</param>
+    /// <returns>AgentResponse with error details</returns>
+    private static AgentResponse CreateErrorResponse(string errorMessage, string? conversationId = null)
+    {
+        return new AgentResponse
+        {
+            IsSuccessful = false,
+            ErrorMessage = errorMessage,
+            ConversationId = conversationId ?? string.Empty
         };
     }
 }
